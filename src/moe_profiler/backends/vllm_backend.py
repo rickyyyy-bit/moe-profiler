@@ -226,10 +226,15 @@ class VllmBackend(Backend):
                 "The server did not report completion token usage; vLLM must support "
                 "stream_options.include_usage to calculate TPOT."
             )
+        if output_tokens == 1:
+            raise BackendError(
+                "TPOT requires at least two output tokens because its denominator "
+                "is output_tokens - 1. Increase max_tokens or use a longer prompt."
+            )
 
         ttft_s = first_chunk_at - started_at
         e2e_s = finished_at - started_at
-        tpot_s = (e2e_s - ttft_s) / (output_tokens - 1) if output_tokens > 1 else 0.0
+        tpot_s = (e2e_s - ttft_s) / (output_tokens - 1)
         return GenerationResult(
             request_id=request.request_id,
             prompt_tokens=prompt_tokens,

@@ -5,10 +5,10 @@ def main() -> None:
     """Run the top-level CLI.
 
     The benchmark orchestration CLI is introduced in a later build stage. The
-    Day 1 smoke test is available at ``scripts/day1_smoke.py``.
+    Stage 1 smoke test is available at ``scripts/smoke_test.py``.
     """
     raise NotImplementedError(
-        "The sweep CLI is not implemented yet; run scripts/day1_smoke.py instead."
+        "The sweep CLI is not implemented yet; run scripts/smoke_test.py instead."
     )
 
 

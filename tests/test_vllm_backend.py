@@ -6,7 +6,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from moe_profiler.backends.base import BackendUnavailableError
+from moe_profiler.backends.base import BackendError, BackendUnavailableError
 from moe_profiler.backends.vllm_backend import VllmBackend
 from moe_profiler.workloads.base import RequestSpec
 
@@ -51,6 +51,32 @@ def test_start_reports_missing_vllm_cleanly() -> None:
         pytest.raises(BackendUnavailableError, match="command is not installed"),
     ):
         backend.start("test/model")
+
+
+def test_generate_rejects_single_token_tpot() -> None:
+    def single_token_response(request: httpx.Request) -> httpx.Response:
+        del request
+        events = [
+            {"choices": [{"delta": {"content": "Done"}}]},
+            {
+                "choices": [],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 1},
+            },
+        ]
+        body = b"".join(f"data: {json.dumps(event)}\n\n".encode() for event in events)
+        return httpx.Response(200, content=body + b"data: [DONE]\n\n")
+
+    backend = VllmBackend()
+    backend._process = _RunningProcess()  # type: ignore[assignment]
+    backend._model_id = "test/model"
+    request = RequestSpec(request_id="request-1", prompt="hello", max_tokens=1)
+    transport = httpx.MockTransport(single_token_response)
+
+    with (
+        patch("httpx.Client", return_value=httpx.Client(transport=transport)),
+        pytest.raises(BackendError, match="at least two output tokens"),
+    ):
+        backend.generate([request])
 
 
 class _RunningProcess:
