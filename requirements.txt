@@ -1,0 +1,17 @@
+# Core analysis and runtime dependencies
+torch
+transformers
+accelerate
+huggingface-hub
+pydantic>=2
+pyyaml
+pandas
+numpy
+matplotlib
+datasets
+httpx
+
+# Serving engines conflict frequently; install each in its own virtual environment.
+# vllm
+# sglang
+
