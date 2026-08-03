@@ -1,4 +1,4 @@
-"""Start one vLLM model and print streamed latency metrics."""
+"""Start one serving backend and print streamed latency metrics."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from moe_profiler.backends import get_backend
 from moe_profiler.backends.base import BackendError, BackendUnavailableError
-from moe_profiler.backends.vllm_backend import VllmBackend
 from moe_profiler.config import ModelConfig
 from moe_profiler.workloads.base import RequestSpec
 
@@ -23,6 +23,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         required=True,
         help="Path to a model YAML configuration file.",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=("vllm", "sglang"),
+        default="vllm",
+        help="Serving engine to launch (default: vllm).",
     )
     return parser.parse_args()
 
@@ -41,8 +47,9 @@ def load_config(path: Path) -> ModelConfig:
         raise ValueError(f"invalid config {path}: {exc}") from exc
 
 
-def run(config: ModelConfig) -> None:
-    backend = VllmBackend(
+def run(config: ModelConfig, backend_name: str) -> None:
+    backend = get_backend(
+        backend_name,
         host=config.host,
         port=config.port,
         startup_timeout_s=config.startup_timeout_s,
@@ -75,7 +82,7 @@ def main() -> int:
     args = parse_args()
     try:
         config = load_config(args.config)
-        run(config)
+        run(config, args.backend)
     except BackendUnavailableError as exc:
         print(f"backend unavailable: {exc}", file=sys.stderr)
         return 2

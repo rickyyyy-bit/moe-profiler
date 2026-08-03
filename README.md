@@ -22,12 +22,13 @@ files.
 
 ## Stage 1 smoke test
 
-On a machine with a supported GPU and the `vllm` command installed:
+On a machine with a supported GPU and the selected serving engine installed:
 
 ```bash
 python scripts/smoke_test.py --config configs/model_qwen15moe.yaml
+python scripts/smoke_test.py --backend sglang --config configs/model_qwen15moe.yaml
 ```
 
 The script owns the server process and stops it on normal exit, failure, or an
-interrupt. On a machine without vLLM, it exits cleanly with a backend-unavailable
-message.
+interrupt. On a machine without the selected engine, it exits cleanly with a
+backend-unavailable message.
