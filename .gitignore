@@ -21,5 +21,4 @@ results/*
 !results/.gitkeep
 !results/notes.md
 !results/demo_sweep.csv
-!results/tiny_qwen3_moe_trace.csv
 !results/report.md

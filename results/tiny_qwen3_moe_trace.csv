@@ -1,5 +1,0 @@
-model,model_revision,runtime,batch_size,passes,prompts_processed,elapsed_s,activated_expert_ratio
-tiny-random/qwen3-moe,10a349dcb488b10c27aa4a3c1dbefb74c41565c3,PyTorch 2.5.1+cpu CPU,1,4,4,0.076067,1.000000
-tiny-random/qwen3-moe,10a349dcb488b10c27aa4a3c1dbefb74c41565c3,PyTorch 2.5.1+cpu CPU,2,4,8,0.025551,1.000000
-tiny-random/qwen3-moe,10a349dcb488b10c27aa4a3c1dbefb74c41565c3,PyTorch 2.5.1+cpu CPU,4,4,16,0.039204,1.000000
-tiny-random/qwen3-moe,10a349dcb488b10c27aa4a3c1dbefb74c41565c3,PyTorch 2.5.1+cpu CPU,8,4,32,0.052270,1.000000

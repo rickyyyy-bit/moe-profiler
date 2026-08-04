@@ -9,18 +9,6 @@ skipped, so there is no quantisation accuracy study, CAP radar, or agentic-vs-ch
 comparison. The committed `demo_sweep.csv` is a deterministic synthetic fixture.
 It verifies the analysis pipeline; it is not evidence of H100 or model speed.
 
-A separate real CPU trace used `tiny-random/qwen3-moe` at immutable revision
-`10a349dcb488b10c27aa4a3c1dbefb74c41565c3` with PyTorch 2.5.1+cpu. Its measured
-rows are stored in `tiny_qwen3_moe_trace.csv`.
-
-> On `tiny-random/qwen3-moe` I found an activated-expert ratio of 1.00 at every
-> tested batch size from 1 to 8 across four passes.
-
-This is a concrete recorder integration result, not a serving benchmark. The
-random fixture has only eight experts, and the tokens within a single prompt
-already cover all of them. It therefore demonstrates immediate sparsity collapse
-and cannot establish the desired low batch-one baseline of a production MoE.
-
 Run `python scripts/regenerate_figures.py` from the repository root to create all
 five report figures. Each output has one declared generator and no hand-authored
 image is part of the report:
@@ -70,5 +58,8 @@ A real release should run the same model revision, prompts, precision, backend
 version, and device across all batch sizes; retain the generated RunResult CSV;
 record actual activation ratios and profiler counter coverage; and replace the
 demonstration source passed to `--csv`. The report can then state measured values
-and uncertainty. CAP/accuracy and agentic findings remain out of scope unless
-Stages 9–12 are implemented and backed by committed result tables.
+and uncertainty. The model must be a trained production MoE: a tiny/random fixture
+that activates nearly every expert at batch 1 is an integration test or null
+result, not evidence of sparsity collapse with batching. CAP/accuracy and agentic
+findings remain out of scope unless Stages 9–12 are implemented and backed by
+committed result tables.

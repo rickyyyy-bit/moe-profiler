@@ -123,18 +123,6 @@ These are reproducibility examples, not measured performance claims. See
 [`results/report.md`](results/report.md) for the scoped report and
 [`results/notes.md`](results/notes.md) for the sparsity interpretation.
 
-One small real trace was also run with PyTorch CPU against immutable model
-revision `10a349dcb488b10c27aa4a3c1dbefb74c41565c3`:
-
-> On `tiny-random/qwen3-moe` I found an activated-expert ratio of 1.00 at every
-> tested batch size from 1 to 8 across four passes.
-
-The model is a 35.8 MB random testing fixture with only eight routed experts, so
-ordinary multi-token prompts cover all experts before batching can reveal a
-low-base sparsity curve. The measured rows are retained in
-`results/tiny_qwen3_moe_trace.csv`; they validate the recorder against a real HF
-MoE implementation, not serving performance or model quality.
-
 ## Module map
 
 | Path | Responsibility |
@@ -156,6 +144,9 @@ MoE implementation, not serving performance or model quality.
 
 - The committed CSV and roofline points are synthetic/illustrative; replace them
   with real revision-stamped GPU runs before making performance claims.
+- Tiny/random MoE fixtures are suitable only for hook integration tests. Their
+  random routers and small expert pools can saturate at batch 1, so their
+  activation ratios must not be reported as model findings.
 - Expert-module discovery uses architecture heuristics and should be checked when
   adding a new model family.
 - Profiler kernels do not always expose DRAM-byte counters. The code reports the
