@@ -120,6 +120,22 @@ These are reproducibility examples, not measured performance claims. See
 [`results/report.md`](results/report.md) for the scoped report and
 [`results/notes.md`](results/notes.md) for the sparsity interpretation.
 
+## Current validation status
+
+I have validated the analytical components that do not require a large GPU. For
+`Qwen/Qwen1.5-MoE-A2.7B-Chat`, the BF16 KV-cache formula gives approximately
+12 GiB at batch 32 and a 2,048-token context. Combined with roughly 26.7 GiB of
+BF16 parameter data, that is about 38.7 GiB before CUDA context, allocator,
+workspace, activation, and serving-engine overhead—already impractical for a
+40 GB-class accelerator.
+
+The remaining empirical measurement is the live expert-activation trace across
+batch sizes on the trained model. That run requires more accelerator memory than
+is currently available locally. The complete trace pipeline is implemented, and
+the S-MBU/S-MFU functions are ready to consume its activation matrices. Access to
+an 80 GB-class GPU would close the loop between the validated analytical model
+and measured sparsity-aware utilisation.
+
 ## Module map
 
 | Path | Responsibility |
