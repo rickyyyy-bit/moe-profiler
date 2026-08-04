@@ -10,6 +10,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import IO
 
 import httpx
@@ -108,17 +109,23 @@ class VllmBackend(Backend):
             raise BackendUnavailableError(f"Could not launch vLLM: {exc}") from exc
 
     def generate(self, requests: list[RequestSpec]) -> list[GenerationResult]:
-        """Send requests serially and measure TTFT, TPOT, and end-to-end time."""
+        """Send requests concurrently and preserve their input ordering."""
         if self._process is None or self._process.poll() is not None:
             raise BackendError("vLLM backend is not running")
         if self._model_id is None:
             raise BackendError("vLLM backend has no configured model")
+        if not requests:
+            return []
 
         endpoint = f"http://{self.host}:{self.port}/v1/chat/completions"
         with httpx.Client(timeout=self.request_timeout_s) as client:
-            return [
-                self._generate_one(client, endpoint, request) for request in requests
-            ]
+            with ThreadPoolExecutor(max_workers=len(requests)) as executor:
+                return list(
+                    executor.map(
+                        lambda request: self._generate_one(client, endpoint, request),
+                        requests,
+                    )
+                )
 
     def stop(self) -> None:
         """Terminate the owned server process group and close its log."""

@@ -6,6 +6,7 @@ from moe_profiler.backends.base import (
     Backend,
     BackendError,
     BackendUnavailableError,
+    ExpertTraceRecorder,
     GenerationResult,
 )
 
@@ -28,6 +29,7 @@ __all__ = [
     "Backend",
     "BackendError",
     "BackendUnavailableError",
+    "ExpertTraceRecorder",
     "GenerationResult",
     "get_backend",
 ]

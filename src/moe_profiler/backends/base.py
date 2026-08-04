@@ -1,10 +1,42 @@
 """Backend contract and shared generation result schema."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from moe_profiler.workloads.base import RequestSpec
+
+if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import NDArray
+
+
+@runtime_checkable
+class ExpertTraceRecorder(Protocol):
+    """Contract for in-process expert tracing, separate from serving backends."""
+
+    def attach(self, model: object) -> None:
+        """Attach router hooks to an in-process model."""
+
+    def run(
+        self,
+        model: object,
+        tokenizer: object,
+        dataset: Iterable[object],
+        max_batches: int,
+        *,
+        batch_size: int = 1,
+        model_id: str | None = None,
+    ) -> "NDArray[np.int64]":
+        """Trace representative batches and return per-expert counts."""
+
+    def activation_matrix(self) -> "NDArray[np.int64]":
+        """Return an ``[n_layers, n_experts]`` activation-count matrix."""
+
+    def activated_ratio(self, batch_size: int) -> float:
+        """Return the fraction of routed and shared experts activated."""
 
 
 class BackendError(RuntimeError):

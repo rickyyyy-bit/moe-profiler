@@ -1,0 +1,21 @@
+model:
+  model_id: Qwen/Qwen1.5-MoE-A2.7B-Chat
+  model_revision: auto  # Resolved to an immutable Hugging Face commit SHA.
+  dtype: bfloat16
+  host: 127.0.0.1
+  port: 8000
+  tp_size: 1
+  quant: null
+  startup_timeout_s: 600.0
+
+sweep:
+  backend: vllm
+  batch_sizes: [1, 2, 4, 8, 16, 32]
+  sequence_lengths:
+    - [128, 32]
+    - [512, 64]
+    - [2048, 128]
+  device: unknown
+  workload: synthetic
+  results_dir: results
+  seed: 42
