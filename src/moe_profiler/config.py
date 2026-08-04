@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class ModelConfig(BaseModel):
     """Configuration required to launch one serving backend."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     model_id: str
     dtype: str = "auto"

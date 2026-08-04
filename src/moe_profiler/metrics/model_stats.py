@@ -382,7 +382,7 @@ def _int_list(config: _ConfigLike, name: str) -> list[int]:
     value = _value(config, name, default=[])
     if value is None:
         return []
-    if not isinstance(value, (list, tuple)) or any(
+    if not isinstance(value, list | tuple) or any(
         isinstance(item, bool) or not isinstance(item, int) for item in value
     ):
         raise ValueError(f"config field {name} must be a list of integers")

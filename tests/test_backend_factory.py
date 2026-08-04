@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+from scripts.smoke_test import run
 
 from moe_profiler.backends import get_backend
 from moe_profiler.backends.base import Backend, GenerationResult
@@ -10,7 +11,6 @@ from moe_profiler.backends.sglang_backend import SglangBackend
 from moe_profiler.backends.vllm_backend import VllmBackend
 from moe_profiler.config import ModelConfig
 from moe_profiler.workloads.base import RequestSpec
-from scripts.smoke_test import run
 
 
 @pytest.mark.parametrize(
