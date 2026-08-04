@@ -57,6 +57,18 @@ class SweepConfig(BaseModel):
         return self
 
 
+class TraceConfig(BaseModel):
+    """In-process Hugging Face expert-activation tracing settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    max_batches: int = Field(default=8, gt=0)
+    cache_dir: Path = Path("results/activations")
+    device_map: str | None = "auto"
+    trust_remote_code: bool = False
+
+
 class AppConfig(BaseModel):
     """Top-level configuration shell shared by scripts and the future CLI."""
 
@@ -64,3 +76,4 @@ class AppConfig(BaseModel):
 
     model: ModelConfig
     sweep: SweepConfig | None = None
+    trace: TraceConfig | None = None

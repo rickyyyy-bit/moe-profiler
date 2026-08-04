@@ -24,6 +24,8 @@ def test_default_sweep_config_loads() -> None:
     assert config.sweep is not None
     assert config.sweep.batch_sizes == [1, 2, 4, 8, 16, 32]
     assert config.sweep.sequence_lengths[0] == (128, 32)
+    assert config.trace is not None
+    assert config.trace.enabled is True
 
 
 def test_sweep_writes_full_schema_and_generates_plots() -> None:

@@ -19,3 +19,10 @@ sweep:
   workload: synthetic
   results_dir: results
   seed: 42
+
+trace:
+  enabled: true
+  max_batches: 8
+  cache_dir: results/activations
+  device_map: auto
+  trust_remote_code: false

@@ -62,6 +62,35 @@ def plot_tpot_vs_batch(
     return _save_figure(figure, output, plt)
 
 
+def plot_activated_ratio_vs_batch(
+    csv_path: str | Path, output_path: str | Path | None = None
+) -> Path:
+    """Plot the mean activated-expert ratio against serving batch size."""
+    frame = _load_results(csv_path, required={"activated_param_ratio"})
+    ratios = frame[["batch_size", "activated_param_ratio"]].copy()
+    if ratios["activated_param_ratio"].isna().any():
+        raise ValueError("results CSV contains missing activated_param_ratio values")
+    ratios = (
+        ratios.groupby("batch_size", as_index=False)["activated_param_ratio"]
+        .mean()
+        .sort_values("batch_size")
+    )
+    output = _result_plot_path(csv_path, output_path, "activated_ratio_vs_batch")
+    plt = _pyplot()
+    figure, axis = plt.subplots(figsize=(7.5, 4.5))
+    axis.plot(
+        ratios["batch_size"],
+        ratios["activated_param_ratio"],
+        marker="o",
+    )
+    axis.set_xlabel("Batch size")
+    axis.set_ylabel("Activated expert ratio")
+    axis.set_title("MoE expert activation vs batch size")
+    axis.set_ylim(0.0, 1.0)
+    axis.grid(alpha=0.3)
+    return _save_figure(figure, output, plt)
+
+
 def plot_kv_vs_seqlen(
     stats: ModelStats,
     seq_lengths: Sequence[int] | None = None,

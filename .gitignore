@@ -19,4 +19,4 @@ models/
 # Generated profiling output (the placeholder remains tracked)
 results/*
 !results/.gitkeep
-
+!results/notes.md

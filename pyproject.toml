@@ -9,6 +9,8 @@ description = "Sparsity-aware inference characterisation for Mixture-of-Experts 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "accelerate",
+    "huggingface-hub",
     "httpx",
     "matplotlib",
     "numpy",
