@@ -147,6 +147,7 @@ def test_ratio_grows_with_batch_and_cache_is_reused(tmp_path) -> None:
     cache_path = recorder.cache_path("tests/fake-moe", 32)
     assert cache_path == tmp_path / "tests--fake-moe_32.npy"
     assert cache_path.exists()
+    assert (tmp_path / "tests--fake-moe_32.ratio.npy").exists()
 
     cached_recorder = ExpertActivationRecorder(cache_dir=tmp_path)
     cached = cached_recorder.run(
@@ -158,10 +159,31 @@ def test_ratio_grows_with_batch_and_cache_is_reused(tmp_path) -> None:
         model_id="tests/fake-moe",
     )
     np.testing.assert_array_equal(cached, batch_32)
+    assert cached_recorder.activated_ratio(32) == pytest.approx(ratio_32)
     assert cached_recorder.batches_processed == 0
 
 
-def test_run_stops_after_activation_union_stabilizes(tmp_path) -> None:
+def test_ratio_averages_each_pass_instead_of_using_cumulative_union(tmp_path) -> None:
+    recorder = ExpertActivationRecorder(
+        stabilization_threshold=0.0,
+        cache_dir=tmp_path,
+    )
+
+    cumulative = recorder.run(
+        FakeMoeModel(),
+        FakeTokenizer(),
+        ["0", "1", "2", "3"],
+        max_batches=4,
+        batch_size=1,
+        use_cache=False,
+    )
+
+    assert np.count_nonzero(cumulative) == 8
+    assert recorder.activated_ratio(1) == pytest.approx(3 / 5)
+    assert recorder.batches_processed == 4
+
+
+def test_run_stops_after_running_average_stabilizes(tmp_path) -> None:
     recorder = ExpertActivationRecorder(
         stabilization_threshold=0.1,
         stabilization_patience=2,

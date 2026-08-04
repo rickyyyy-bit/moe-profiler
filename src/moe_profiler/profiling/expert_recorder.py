@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import statistics
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,6 +96,7 @@ class ExpertActivationRecorder:
         self._handles: list[Any] = []
         self._counts: NDArray[np.int64] | None = None
         self._counts_by_batch: dict[int, NDArray[np.int64]] = {}
+        self._ratios_by_batch: dict[int, float] = {}
         self._current_batch_size = 1
 
     def attach(self, model: object) -> None:
@@ -177,6 +179,9 @@ class ExpertActivationRecorder:
         self._counts = np.zeros((self.n_layers, self.n_experts), dtype=np.int64)
         if clear_history:
             self._counts_by_batch.clear()
+            self._ratios_by_batch.clear()
+        else:
+            self._ratios_by_batch.pop(batch_size, None)
         self._counts_by_batch[batch_size] = self._counts.copy()
         self.batches_processed = 0
 
@@ -191,11 +196,13 @@ class ExpertActivationRecorder:
         model_id: str | None = None,
         use_cache: bool = True,
     ) -> NDArray[np.int64]:
-        """Trace dataset batches until the expert union stabilizes.
+        """Trace dataset batches until the mean per-pass ratio stabilizes.
 
-        A batch contributes no new experts when its marginal-new-expert rate is
-        below ``stabilization_threshold``. Tracing stops after that remains true
-        for ``stabilization_patience`` consecutive batches.
+        Each forward pass measures the expert union within that pass only. The
+        reported ratio is the mean of those pass ratios; cumulative counts are
+        retained separately for the activation matrix. Tracing stops when the
+        running mean changes by less than ``stabilization_threshold`` for
+        ``stabilization_patience`` consecutive batches.
         """
         if max_batches <= 0:
             raise ValueError("max_batches must be positive")
@@ -213,7 +220,8 @@ class ExpertActivationRecorder:
                 return cached
 
         self.reset(batch_size=batch_size)
-        previous_active = np.zeros_like(self.activation_matrix(), dtype=np.bool_)
+        pass_ratios: list[float] = []
+        previous_average: float | None = None
         stable_batches = 0
         batches = _batched_prompts(dataset, batch_size)
         model_was_training = model.training
@@ -225,21 +233,26 @@ class ExpertActivationRecorder:
                         break
                     inputs = _tokenize(tokenizer, prompts)
                     inputs = _move_to_model_device(inputs, model)
+                    counts_before_pass = self.activation_matrix()
                     model(**inputs)
                     self.batches_processed += 1
 
-                    active = self.activation_matrix() > 0
-                    new_experts = int(np.count_nonzero(active & ~previous_active))
-                    capacity = len(self._bindings) * self._require_n_experts()
-                    marginal_rate = new_experts / capacity
-                    previous_active = active
+                    pass_counts = self.activation_matrix() - counts_before_pass
+                    pass_ratios.append(self._ratio_from_counts(pass_counts))
+                    running_average = statistics.fmean(pass_ratios)
+                    average_change = (
+                        float("inf")
+                        if previous_average is None
+                        else abs(running_average - previous_average)
+                    )
                     if (
                         self.batches_processed >= self.min_batches
-                        and marginal_rate < self.stabilization_threshold
+                        and average_change < self.stabilization_threshold
                     ):
                         stable_batches += 1
                     else:
                         stable_batches = 0
+                    previous_average = running_average
                     if stable_batches >= self.stabilization_patience:
                         break
         finally:
@@ -248,6 +261,7 @@ class ExpertActivationRecorder:
         if self.batches_processed == 0:
             raise ValueError("dataset did not yield any prompts")
         self._counts_by_batch[batch_size] = self.activation_matrix()
+        self._ratios_by_batch[batch_size] = statistics.fmean(pass_ratios)
         if resolved_model_id is not None:
             self.save_cache(resolved_model_id, batch_size)
         return self.activation_matrix()
@@ -262,20 +276,16 @@ class ExpertActivationRecorder:
         """Return activated experts divided by routed plus shared experts."""
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        ratio = self._ratios_by_batch.get(batch_size)
+        if ratio is not None:
+            return ratio
         try:
             counts = self._counts_by_batch[batch_size]
         except KeyError as exc:
             raise ValueError(
                 f"no activations recorded for batch size {batch_size}"
             ) from exc
-
-        rows = self._router_layer_indices
-        if not rows:
-            raise RuntimeError("attach a model before computing activation ratios")
-        routed_active = int(np.count_nonzero(counts[list(rows)]))
-        shared_active = len(rows) * self.n_shared_experts
-        experts_per_layer = self._require_n_experts() + self.n_shared_experts
-        return (routed_active + shared_active) / (len(rows) * experts_per_layer)
+        return self._ratio_from_counts(counts)
 
     def cache_path(self, model_id: str, batch_size: int) -> Path:
         """Return the deterministic activation-sheet path for a model/batch."""
@@ -287,7 +297,7 @@ class ExpertActivationRecorder:
         return self.cache_dir / f"{safe_model}_{batch_size}.npy"
 
     def save_cache(self, model_id: str, batch_size: int) -> Path:
-        """Persist the recorded activation sheet for later reuse."""
+        """Persist the activation sheet and its mean per-pass ratio."""
         try:
             counts = self._counts_by_batch[batch_size]
         except KeyError as exc:
@@ -297,12 +307,18 @@ class ExpertActivationRecorder:
         path = self.cache_path(model_id, batch_size)
         path.parent.mkdir(parents=True, exist_ok=True)
         np.save(path, counts, allow_pickle=False)
+        ratio = self._ratios_by_batch.get(batch_size)
+        if ratio is None:
+            ratio = self._ratio_from_counts(counts)
+            self._ratios_by_batch[batch_size] = ratio
+        np.save(self._ratio_cache_path(path), np.asarray(ratio), allow_pickle=False)
         return path
 
     def load_cache(self, model_id: str, batch_size: int) -> NDArray[np.int64] | None:
         """Load a compatible cached sheet, or return ``None`` when absent."""
         path = self.cache_path(model_id, batch_size)
-        if not path.exists():
+        ratio_path = self._ratio_cache_path(path)
+        if not path.exists() or not ratio_path.exists():
             return None
         expected_shape = (self._require_n_layers(), self._require_n_experts())
         counts = np.load(path, allow_pickle=False)
@@ -314,11 +330,33 @@ class ExpertActivationRecorder:
             raise ValueError(message)
         if not np.issubdtype(counts.dtype, np.integer):
             raise ValueError("cached activation sheet must contain integer counts")
+        cached_ratio = np.load(ratio_path, allow_pickle=False)
+        if cached_ratio.shape != () or not np.issubdtype(
+            cached_ratio.dtype, np.floating
+        ):
+            raise ValueError("cached activation ratio must be a floating-point scalar")
+        ratio = float(cached_ratio.item())
+        if not 0.0 <= ratio <= 1.0:
+            raise ValueError("cached activation ratio must be between 0 and 1")
         self._current_batch_size = batch_size
         self._counts = counts.astype(np.int64, copy=True)
         self._counts_by_batch[batch_size] = self._counts.copy()
+        self._ratios_by_batch[batch_size] = ratio
         self.batches_processed = 0
         return self.activation_matrix()
+
+    def _ratio_from_counts(self, counts: NDArray[np.int64]) -> float:
+        rows = self._router_layer_indices
+        if not rows:
+            raise RuntimeError("attach a model before computing activation ratios")
+        routed_active = int(np.count_nonzero(counts[list(rows)]))
+        shared_active = len(rows) * self.n_shared_experts
+        experts_per_layer = self._require_n_experts() + self.n_shared_experts
+        return (routed_active + shared_active) / (len(rows) * experts_per_layer)
+
+    @staticmethod
+    def _ratio_cache_path(activation_path: Path) -> Path:
+        return activation_path.with_name(f"{activation_path.stem}.ratio.npy")
 
     def _make_hook(self, layer_index: int) -> Any:
         def record(

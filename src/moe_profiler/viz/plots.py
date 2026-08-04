@@ -29,7 +29,7 @@ def plot_throughput_vs_batch(
             label=f"in={input_len}, out={output_len}",
         )
     axis.set_xlabel("Batch size")
-    axis.set_ylabel("Throughput (output tokens/s)")
+    axis.set_ylabel("End-to-end throughput (output tokens/s)")
     axis.set_title("Serving throughput vs batch size")
     axis.grid(alpha=0.3)
     axis.legend()

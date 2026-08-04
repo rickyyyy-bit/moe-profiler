@@ -255,6 +255,8 @@ def _aggregate_result(
     total_prompt_tokens = sum(result.prompt_tokens for result in generations)
     max_ttft_s = max(result.ttft_s for result in generations)
     prefill_throughput = total_prompt_tokens / max_ttft_s if max_ttft_s > 0 else 0.0
+    # Deliberately end-to-end: elapsed_s includes prefill/TTFT and decode time.
+    end_to_end_output_throughput = total_output_tokens / elapsed_s
     return RunResult(
         run_id=run_id,
         timestamp=datetime.now(UTC),
@@ -271,7 +273,7 @@ def _aggregate_result(
         ttft_s=statistics.fmean(result.ttft_s for result in generations),
         tpot_s=statistics.fmean(result.tpot_s for result in generations),
         e2e_s=statistics.fmean(result.e2e_s for result in generations),
-        throughput_tok_s=total_output_tokens / elapsed_s,
+        throughput_tok_s=end_to_end_output_throughput,
         prefill_throughput_tok_s=prefill_throughput,
         activated_param_ratio=activated_param_ratio,
     )
