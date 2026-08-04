@@ -1,0 +1,7 @@
+run_id,timestamp,model,model_revision,backend,backend_version,quant,device,workload,batch_size,input_len,output_len,ttft_s,tpot_s,e2e_s,throughput_tok_s,prefill_throughput_tok_s,activated_param_ratio,vanilla_mbu,s_mbu,vanilla_mfu,s_mfu,achieved_bw_gbps,peak_bw_gbps,profiled_bw_gbps,accuracy,power_w
+stage13-demo,2026-08-04T00:00:00Z,synthetic/demo-moe,0000000000000000000000000000000000000000,offline-demo,1.0,fp16,H100-SXM,synthetic-demonstration,1,128,32,0.025,0.0120,0.397,75,5120,0.125,,,,,,,,,
+stage13-demo,2026-08-04T00:00:00Z,synthetic/demo-moe,0000000000000000000000000000000000000000,offline-demo,1.0,fp16,H100-SXM,synthetic-demonstration,2,128,32,0.027,0.0125,0.414,140,9481,0.220,,,,,,,,,
+stage13-demo,2026-08-04T00:00:00Z,synthetic/demo-moe,0000000000000000000000000000000000000000,offline-demo,1.0,fp16,H100-SXM,synthetic-demonstration,4,128,32,0.030,0.0135,0.449,250,17067,0.420,,,,,,,,,
+stage13-demo,2026-08-04T00:00:00Z,synthetic/demo-moe,0000000000000000000000000000000000000000,offline-demo,1.0,fp16,H100-SXM,synthetic-demonstration,8,128,32,0.036,0.0150,0.501,420,28444,0.720,,,,,,,,,
+stage13-demo,2026-08-04T00:00:00Z,synthetic/demo-moe,0000000000000000000000000000000000000000,offline-demo,1.0,fp16,H100-SXM,synthetic-demonstration,16,128,32,0.048,0.0180,0.606,650,42667,0.900,,,,,,,,,
+stage13-demo,2026-08-04T00:00:00Z,synthetic/demo-moe,0000000000000000000000000000000000000000,offline-demo,1.0,fp16,H100-SXM,synthetic-demonstration,32,128,32,0.071,0.0240,0.815,820,57690,1.000,,,,,,,,,

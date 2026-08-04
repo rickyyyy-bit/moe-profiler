@@ -1,0 +1,99 @@
+diff --git a/moe_cap/runner/openai_api_profile.py b/moe_cap/runner/openai_api_profile.py
+index 875dabb..c1ed202 100644
+--- a/moe_cap/runner/openai_api_profile.py
++++ b/moe_cap/runner/openai_api_profile.py
+@@ -139,6 +139,18 @@ def _mean_server_request_ttft(
+     return sum(completed) / len(completed)
+ 
+ 
++def _mean_client_tpot(results: List[Any]) -> float:
++    """Average client TPOT over requests with at least one token interval."""
++    tpots = []
++    for result in results:
++        output_len = getattr(result, "output_len", 0) or 0
++        latency = getattr(result, "latency", 0) or 0
++        ttft = getattr(result, "ttft", 0) or 0
++        if output_len > 1 and latency >= ttft:
++            tpots.append((latency - ttft) / (output_len - 1))
++    return sum(tpots) / len(tpots) if tpots else 0.0
++
++
+ def _client_prefill_records(
+     server_records: Optional[List[Dict[str, Any]]],
+     n_client_requests: int,
+@@ -1411,14 +1423,7 @@ class OpenAIAPIMoEProfiler:
+                 else 0
+             )
+             server_request_ttft = _mean_server_request_ttft(server_records)
+-            simple_tpots = []
+-            for r in successful_for_simple:
+-                out_len = getattr(r, "output_len", 0) or 0
+-                latency = getattr(r, "latency", 0) or 0
+-                ttft = getattr(r, "ttft", 0) or 0
+-                if out_len > 0 and latency >= ttft:
+-                    simple_tpots.append((latency - ttft) / out_len)
+-            simple_tpot = sum(simple_tpots) / len(simple_tpots) if simple_tpots else 0
++            simple_tpot = _mean_client_tpot(successful_for_simple)
+ 
+             metrics_dict = {
+                 "performance": {
+diff --git a/tests/test_client_tpot_fallback.py b/tests/test_client_tpot_fallback.py
+new file mode 100644
+index 0000000..d330ec8
+--- /dev/null
++++ b/tests/test_client_tpot_fallback.py
+@@ -0,0 +1,54 @@
++"""Tests for the client-side TPOT fallback."""
++
++import ast
++import unittest
++from pathlib import Path
++from types import SimpleNamespace
++from typing import Any, List
++
++
++SOURCE_PATH = (
++    Path(__file__).parents[1] / "moe_cap" / "runner" / "openai_api_profile.py"
++)
++
++
++def _load_helper():
++    source = SOURCE_PATH.read_text(encoding="utf-8")
++    lines = source.splitlines()
++    tree = ast.parse(source)
++    node = next(
++        node
++        for node in tree.body
++        if isinstance(node, ast.FunctionDef) and node.name == "_mean_client_tpot"
++    )
++    namespace = {"Any": Any, "List": List}
++    exec("\n".join(lines[node.lineno - 1 : node.end_lineno]), namespace)
++    return namespace["_mean_client_tpot"]
++
++
++class ClientTPOTFallbackTest(unittest.TestCase):
++    def test_uses_inter_token_interval_count(self):
++        mean_tpot = _load_helper()
++        results = [SimpleNamespace(output_len=5, latency=1.1, ttft=0.1)]
++
++        self.assertAlmostEqual(mean_tpot(results), 0.25)
++
++    def test_ignores_one_token_completion(self):
++        mean_tpot = _load_helper()
++        results = [SimpleNamespace(output_len=1, latency=0.1, ttft=0.1)]
++
++        self.assertEqual(mean_tpot(results), 0.0)
++
++    def test_averages_valid_requests_only(self):
++        mean_tpot = _load_helper()
++        results = [
++            SimpleNamespace(output_len=3, latency=0.5, ttft=0.1),
++            SimpleNamespace(output_len=2, latency=0.4, ttft=0.1),
++            SimpleNamespace(output_len=0, latency=0.0, ttft=0.0),
++        ]
++
++        self.assertAlmostEqual(mean_tpot(results), 0.25)
++
++
++if __name__ == "__main__":
++    unittest.main()
