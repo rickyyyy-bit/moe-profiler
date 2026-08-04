@@ -70,6 +70,36 @@ def test_generate_matches_backend_result_contract() -> None:
     assert result.tpot_s == pytest.approx(result.e2e_s - result.ttft_s)
 
 
+def test_generate_records_zero_tpot_for_single_token() -> None:
+    def single_token_response(request: httpx.Request) -> httpx.Response:
+        del request
+        events = [
+            {"choices": [{"delta": {"content": "Done"}}]},
+            {
+                "choices": [],
+                "usage": {"prompt_tokens": 4, "completion_tokens": 1},
+            },
+        ]
+        body = b"".join(f"data: {json.dumps(event)}\n\n".encode() for event in events)
+        return httpx.Response(200, content=body + b"data: [DONE]\n\n")
+
+    backend = SglangBackend()
+    backend._process = _RunningProcess()  # type: ignore[assignment]
+    backend._model_id = "test/model"
+    request = RequestSpec(request_id="request-1", prompt="hello", max_tokens=1)
+    transport = httpx.MockTransport(single_token_response)
+
+    with (
+        patch("httpx.Client", return_value=httpx.Client(transport=transport)),
+        pytest.warns(RuntimeWarning, match="TPOT is undefined"),
+    ):
+        result = backend.generate([request])[0]
+
+    assert result.output_tokens == 1
+    assert result.tpot_s == 0.0
+    assert result.output_text == "Done"
+
+
 def test_start_reports_missing_sglang_cleanly() -> None:
     backend = SglangBackend()
     with (

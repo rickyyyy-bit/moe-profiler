@@ -6,7 +6,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from moe_profiler.backends.base import BackendError, BackendUnavailableError
+from moe_profiler.backends.base import BackendUnavailableError
 from moe_profiler.backends.vllm_backend import VllmBackend
 from moe_profiler.workloads.base import RequestSpec
 
@@ -53,7 +53,7 @@ def test_start_reports_missing_vllm_cleanly() -> None:
         backend.start("test/model")
 
 
-def test_generate_rejects_single_token_tpot() -> None:
+def test_generate_records_zero_tpot_for_single_token() -> None:
     def single_token_response(request: httpx.Request) -> httpx.Response:
         del request
         events = [
@@ -74,9 +74,13 @@ def test_generate_rejects_single_token_tpot() -> None:
 
     with (
         patch("httpx.Client", return_value=httpx.Client(transport=transport)),
-        pytest.raises(BackendError, match="at least two output tokens"),
+        pytest.warns(RuntimeWarning, match="TPOT is undefined"),
     ):
-        backend.generate([request])
+        result = backend.generate([request])[0]
+
+    assert result.output_tokens == 1
+    assert result.tpot_s == 0.0
+    assert result.output_text == "Done"
 
 
 class _RunningProcess:
