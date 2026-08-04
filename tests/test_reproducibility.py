@@ -1,4 +1,4 @@
-"""Stage 13 clean-checkout figure reproduction checks."""
+"""Clean-checkout figure reproduction checks."""
 
 from pathlib import Path
 

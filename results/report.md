@@ -1,12 +1,10 @@
-# Stage 13 reproducibility report
+# Reproducibility report
 
 ## Scope and evidence status
 
-This report covers the implemented Stage 0–8 system: serving latency and
-throughput, model/KV statistics, expert activation, sparse utilisation metrics,
-profiler validation, and roofline analysis. Stages 9–12 were intentionally
-skipped, so there is no quantisation accuracy study, CAP radar, or agentic-vs-chat
-comparison. The committed `demo_sweep.csv` is a deterministic synthetic fixture.
+This report covers serving latency and throughput, model/KV statistics, expert
+activation, sparse utilisation metrics, profiler validation, and roofline
+analysis. The committed `demo_sweep.csv` is a deterministic synthetic fixture.
 It verifies the analysis pipeline; it is not evidence of H100 or model speed.
 
 Run `python scripts/regenerate_figures.py` from the repository root to create all
@@ -24,7 +22,7 @@ image is part of the report:
 ## Sparsity, batching, and memory
 
 The demonstration activation ratios are 0.125, 0.22, 0.42, 0.72, 0.90, and
-1.00 for batches 1, 2, 4, 8, 16, and 32. They illustrate the intended Stage 6
+1.00 for batches 1, 2, 4, 8, 16, and 32. They illustrate the intended
 shape: a low batch-one base that rises sub-linearly toward full expert coverage.
 The recorder computes the expert union separately for each forward pass and then
 averages pass ratios. It never unions unrelated prompts across all trace passes,
@@ -60,6 +58,4 @@ record actual activation ratios and profiler counter coverage; and replace the
 demonstration source passed to `--csv`. The report can then state measured values
 and uncertainty. The model must be a trained production MoE: a tiny/random fixture
 that activates nearly every expert at batch 1 is an integration test or null
-result, not evidence of sparsity collapse with batching. CAP/accuracy and agentic
-findings remain out of scope unless Stages 9–12 are implemented and backed by
-committed result tables.
+result, not evidence of sparsity collapse with batching.

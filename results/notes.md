@@ -1,6 +1,6 @@
 # Results notes
 
-## Stage 6: sparsity versus batch size
+## Sparsity versus batch size
 
 MoE sparsity is strongest at small batches because each request routes only a small
 top-k subset of experts per layer. As batch size grows, tokens from more prompts are

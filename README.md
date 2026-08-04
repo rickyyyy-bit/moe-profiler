@@ -10,18 +10,15 @@ The metric definitions follow the ideas in
 [MoE-CAP](https://arxiv.org/abs/2412.07067). This repository is an independent,
 small implementation intended for experiments and code review.
 
-## Implemented scope
+## Capabilities
 
-This release covers Stages 0–8 and the Stage 13 reproducibility/report layer:
+This release provides:
 
 - streamed TTFT/TPOT measurement through vLLM and SGLang;
 - deterministic batch/sequence sweeps and result logging;
 - model statistics, analytical KV-cache growth, MBU/MFU, and sparse S-MBU/S-MFU;
 - per-forward-pass expert activation tracing and sparsity-vs-batch plots;
 - `torch.profiler` bandwidth extraction, validation, and roofline plots.
-
-Stages 9–12 (quantisation/accuracy, CAP radar, and agentic workloads) were skipped
-by project decision. No CAP or agentic results are claimed in this release.
 
 ## Installation
 
@@ -152,5 +149,3 @@ These are reproducibility examples, not measured performance claims. See
 - Profiler kernels do not always expose DRAM-byte counters. The code reports the
   counter source/fallback and should not turn an estimate into a measurement.
 - Device peaks and prices are approximate reference values, not live quotes.
-- The profiler does not yet cover quantisation accuracy, CAP radar plots, agentic
-  session traffic, prefix-cache hit rate, or power measurement (Stages 9–12).

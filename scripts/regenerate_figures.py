@@ -1,4 +1,4 @@
-"""Regenerate every Stage 13 figure from committed, offline inputs."""
+"""Regenerate every report figure from committed, offline inputs."""
 
 from __future__ import annotations
 

@@ -1,11 +1,10 @@
-# Stage 14 upstream contribution notes
+# Upstream contribution notes
 
 ## Status
 
 Prepared and locally tested; **not committed, pushed, or submitted**. The project
 owner requires reviewing and making every commit. Consequently there is no PR URL
-or `v0.1.0` tag yet. This is the honest Stage 14 hand-off rather than an invented
-link.
+or `v0.1.0` tag yet; this hand-off does not invent one.
 
 ## Upstream target
 
@@ -55,9 +54,9 @@ git apply /path/to/moe-profiler/contributions/moe-cap-client-tpot.patch
 python -m pytest tests/test_client_tpot_fallback.py tests/test_request_ttft_aggregation.py
 
 # After reviewing the diff, the owner creates the upstream commit and PR.
-# In this repository, after reviewing all Stage 13/14 changes:
+# In this repository, after reviewing all local changes:
 git add -A
-git commit -m "docs: reproducible Stage 13 report and Stage 14 upstream patch"
+git commit -m "docs: add reproducible report and upstream patch"
 git tag v0.1.0
 ```
 

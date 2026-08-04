@@ -1,4 +1,4 @@
-"""Offline tests for Stage 6 activation-ratio sweep integration."""
+"""Offline tests for activation-ratio sweep integration."""
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,7 +14,7 @@ from moe_profiler.workloads.base import RequestSpec
 
 
 def test_sweep_records_batch_ratios_and_generates_sparsity_plot() -> None:
-    with TemporaryDirectory(prefix="stage6-test-", dir="results") as directory:
+    with TemporaryDirectory(prefix="sparsity-test-", dir="results") as directory:
         backend = _FakeBackend()
         provider_called = False
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RunResult(BaseModel):
-    """One measured sweep point and all fields used by later stages."""
+    """One measured sweep point and all fields used by downstream analysis."""
 
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 

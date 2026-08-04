@@ -78,7 +78,7 @@ def vanilla_mfu(stats: ModelStats, throughput: float, f_peak: float) -> float:
 def s_mfu(stats: ModelStats, throughput: float, f_peak: float) -> float:
     """Return sparsity-aware model FLOPs utilisation.
 
-    Stage 3 already derives the three terms in the sparse FLOP equation from
+    Model-stat derivation provides the three terms in the sparse FLOP equation from
     model configuration: attention, router, and selected/shared expert FLOPs.
     """
     _require_non_negative("throughput", throughput)

@@ -1,4 +1,4 @@
-"""Offline integration tests for Stage 4 sweeps, CSV logging, and plots."""
+"""Offline integration tests for sweeps, CSV logging, and plots."""
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -29,7 +29,7 @@ def test_default_sweep_config_loads() -> None:
 
 
 def test_sweep_writes_full_schema_and_generates_plots() -> None:
-    with TemporaryDirectory(prefix="stage4-test-", dir="results") as directory:
+    with TemporaryDirectory(prefix="sweep-test-", dir="results") as directory:
         temp_path = Path(directory)
         config = AppConfig(
             model=ModelConfig(model_id="offline/test-model", dtype="bfloat16"),

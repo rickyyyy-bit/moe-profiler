@@ -1,4 +1,4 @@
-"""Offline tests for Stage 8 profiler validation and roofline analysis."""
+"""Offline tests for profiler validation and roofline analysis."""
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -125,7 +125,7 @@ def test_roofline_plot_contains_prefill_and_decode_points() -> None:
         RooflinePoint(label="decode", intensity=10.0, achieved_flops=20e12),
         RooflinePoint(label="prefill", intensity=500.0, achieved_flops=500e12),
     ]
-    with TemporaryDirectory(prefix="stage8-test-", dir="results") as directory:
+    with TemporaryDirectory(prefix="profiling-test-", dir="results") as directory:
         output = plot_roofline(
             device,
             points,
@@ -138,7 +138,7 @@ def test_roofline_plot_contains_prefill_and_decode_points() -> None:
 
 def _run_result() -> RunResult:
     return RunResult(
-        run_id="stage8-test",
+        run_id="profiling-test",
         timestamp=datetime.now(UTC),
         model="offline/fake-moe",
         model_revision="a" * 40,

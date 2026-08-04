@@ -4,8 +4,8 @@
 def main() -> None:
     """Run the top-level CLI.
 
-    The benchmark orchestration CLI is introduced in a later build stage. The
-    Stage 1 smoke test is available at ``scripts/smoke_test.py``.
+    Benchmark orchestration is currently available through the Python API. The
+    serving smoke test is available at ``scripts/smoke_test.py``.
     """
     raise NotImplementedError(
         "The sweep CLI is not implemented yet; run scripts/smoke_test.py instead."
