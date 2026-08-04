@@ -1,6 +1,7 @@
 """Analytical model and serving metrics."""
 
 from moe_profiler.metrics.kv_cache import kv_cache_bytes, kv_cache_bytes_per_token
+from moe_profiler.metrics.mbu_mfu import s_mbu, s_mfu, vanilla_mbu, vanilla_mfu
 from moe_profiler.metrics.model_stats import ModelStats, load_model_stats
 
 __all__ = [
@@ -8,4 +9,8 @@ __all__ = [
     "kv_cache_bytes",
     "kv_cache_bytes_per_token",
     "load_model_stats",
+    "s_mbu",
+    "s_mfu",
+    "vanilla_mbu",
+    "vanilla_mfu",
 ]
