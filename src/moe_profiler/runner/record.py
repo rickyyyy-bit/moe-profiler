@@ -8,6 +8,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from moe_profiler.provenance import ExecutionPhase, TraceMode, ValueKind
+
 
 class RunResult(BaseModel):
     """One measured sweep point and all fields used by downstream analysis."""
@@ -15,17 +17,35 @@ class RunResult(BaseModel):
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     run_id: str = Field(min_length=1)
+    trial_id: str = "summary"
     timestamp: datetime
     model: str = Field(min_length=1)
     model_revision: str = Field(min_length=1)
+    tokenizer_id: str | None = None
+    tokenizer_revision: str | None = None
     backend: str = Field(min_length=1)
     backend_version: str = Field(min_length=1)
+    dtype: str = "unknown"
+    tensor_parallel_size: int = Field(default=1, gt=0)
     quant: str | None = None
     device: str = Field(min_length=1)
     workload: str = Field(min_length=1)
+    workload_fingerprint: str = "unknown"
     batch_size: int = Field(gt=0)
+    concurrency: int | None = Field(default=None, gt=0)
     input_len: int = Field(gt=0)
     output_len: int = Field(gt=1)
+    requested_prompt_tokens: int | None = Field(default=None, ge=0)
+    actual_prompt_tokens: int | None = Field(default=None, ge=0)
+    requested_output_tokens: int | None = Field(default=None, ge=0)
+    actual_output_tokens: int | None = Field(default=None, ge=0)
+    execution_phase: ExecutionPhase = "end_to_end"
+    warmup: bool = False
+    value_kind: ValueKind = "measurement"
+    trace_mode: TraceMode = "none"
+    instrumentation_mode: str = "none"
+    instrumentation_version: str = "none"
+    instrumentation_overhead_pct: float | None = Field(default=None, ge=0.0)
     ttft_s: float = Field(ge=0.0)
     tpot_s: float = Field(ge=0.0)
     e2e_s: float = Field(ge=0.0)
@@ -41,6 +61,11 @@ class RunResult(BaseModel):
     profiled_bw_gbps: float | None = Field(default=None, ge=0.0)
     accuracy: float | None = Field(default=None, ge=0.0, le=1.0)
     power_w: float | None = Field(default=None, ge=0.0)
+    latency_p50_s: float | None = Field(default=None, ge=0.0)
+    latency_p95_s: float | None = Field(default=None, ge=0.0)
+    latency_p99_s: float | None = Field(default=None, ge=0.0)
+    metric_status_json: str = "{}"
+    environment_json: str = "{}"
 
 
 class ResultWriter:

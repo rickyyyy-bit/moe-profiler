@@ -24,7 +24,7 @@ class ModelConfig(BaseModel):
 
 
 class SweepConfig(BaseModel):
-    """Controlled batch-size and sequence-length sweep dimensions."""
+    """Controlled concurrency and sequence-length sweep dimensions."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -40,6 +40,10 @@ class SweepConfig(BaseModel):
     workload: str = "synthetic"
     results_dir: Path = Path("results")
     seed: int = 42
+    warmup_trials: int = Field(default=1, ge=0)
+    measured_repetitions: int = Field(default=3, gt=0)
+    peak_bw_gbps: float | None = Field(default=None, gt=0.0)
+    peak_flops: float | None = Field(default=None, gt=0.0)
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> SweepConfig:
@@ -67,6 +71,15 @@ class TraceConfig(BaseModel):
     cache_dir: Path = Path("results/activations")
     device_map: str | None = "auto"
     trust_remote_code: bool = False
+    mode: Literal["hf_reference", "backend_native", "none"] = "hf_reference"
+    allow_mismatched_metrics: bool = False
+    tracer_version: str = "2"
+
+    @model_validator(mode="after")
+    def validate_mode(self) -> TraceConfig:
+        if not self.enabled and self.mode != "none":
+            self.mode = "none"
+        return self
 
 
 class AppConfig(BaseModel):

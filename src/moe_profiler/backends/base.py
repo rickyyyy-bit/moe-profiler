@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from moe_profiler.provenance import MeasurementProvenance
 from moe_profiler.workloads.base import RequestSpec
 
 if TYPE_CHECKING:
@@ -59,6 +60,7 @@ class GenerationResult(BaseModel):
     tpot_s: float = Field(ge=0.0)
     e2e_s: float = Field(ge=0.0)
     output_text: str
+    provenance: MeasurementProvenance | None = None
 
 
 class Backend(ABC):

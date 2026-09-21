@@ -110,6 +110,13 @@ def test_qwen_sparse_step_accounts_for_dense_mlp_layers() -> None:
     assert stats.attn_flops_per_token == 6_144
     assert stats.expert_flops_per_token == 12_288
     assert stats.router_flops_per_token == 320
+    assert stats.sparse_layer_indices == (1, 3)
+    assert stats.routed_expert_params_per_layer == (0, 384, 0, 384)
+    assert stats.shared_expert_params_per_layer == (0, 768, 0, 768)
+    assert stats.dense_mlp_params_per_layer == (1536, 0, 1536, 0)
+    assert stats.router_params_per_layer == (0, 80, 0, 80)
+    assert "embedding table excluded" in stats.decode_weight_scope
+    assert "sequence-length-dependent" in stats.attention_flop_scope
 
 
 def test_invalid_top_k_is_rejected() -> None:

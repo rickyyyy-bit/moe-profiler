@@ -1,5 +1,6 @@
 """Offline integration tests for sweeps, CSV logging, and plots."""
 
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -50,12 +51,26 @@ def test_sweep_writes_full_schema_and_generates_plots() -> None:
 
         assert backend.started is True
         assert backend.stopped is True
+        assert backend.generate_calls == 24
         frame = pd.read_csv(csv_path)
         assert list(frame.columns) == list(RunResult.model_fields)
         assert len(frame) == 6
         assert set(frame["batch_size"]) == {1, 2, 4}
         assert frame["throughput_tok_s"].gt(0).all()
         assert set(frame["model_revision"]) == {"a" * 40}
+        assert frame["concurrency"].equals(frame["batch_size"])
+        assert frame["latency_p50_s"].notna().all()
+        run_id = frame.iloc[0]["run_id"]
+        trial_file = csv_path.parent / f"{run_id}.trials.jsonl"
+        request_file = csv_path.parent / f"{run_id}.requests.jsonl"
+        assert len(trial_file.read_text(encoding="utf-8").splitlines()) == 24
+        request_lines = request_file.read_text(encoding="utf-8").splitlines()
+        assert len(request_lines) == 56
+        raw_request = json.loads(request_lines[0])
+        assert raw_request["provenance"]["execution_phase"] == "end_to_end"
+        assert raw_request["provenance"]["warmup"] is True
+        assert raw_request["provenance"]["batch_size"] is None
+        assert raw_request["provenance"]["concurrency"] in {1, 2, 4}
         for _, group in frame.groupby(["input_len", "output_len"]):
             assert group.sort_values("batch_size")[
                 "throughput_tok_s"
@@ -80,6 +95,7 @@ class _FakeBackend(Backend):
     def __init__(self) -> None:
         self.started = False
         self.stopped = False
+        self.generate_calls = 0
 
     def start(
         self,
@@ -92,6 +108,7 @@ class _FakeBackend(Backend):
         self.started = True
 
     def generate(self, requests: list[RequestSpec]) -> list[GenerationResult]:
+        self.generate_calls += 1
         return [
             GenerationResult(
                 request_id=request.request_id,

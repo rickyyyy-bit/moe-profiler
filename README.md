@@ -1,10 +1,10 @@
 # moe-profiler
 
-`moe-profiler` characterises sparse Mixture-of-Experts (MoE) inference without
-mistaking total model size for the parameters used by each token. It combines
-serving measurements, Hugging Face router traces, analytical memory/FLOP models,
-and profiler validation to explain where sparsity helps—and where growing batches
-activate enough experts to erase that advantage.
+`moe-profiler` characterises sparse Mixture-of-Experts (MoE) inference while
+keeping serving measurements, Hugging Face reference traces, analytical models,
+synthetic demonstrations, and hardware counters distinct. Results carry enough
+provenance to determine whether latency and routing observations describe the
+same model revision, workload, phase, and trial.
 
 The metric definitions follow the ideas in
 [MoE-CAP](https://arxiv.org/abs/2412.07067). This repository is an independent,
@@ -15,9 +15,10 @@ small implementation intended for experiments and code review.
 This release provides:
 
 - streamed TTFT/TPOT measurement through vLLM and SGLang;
-- deterministic batch/sequence sweeps and result logging;
+- deterministic concurrency/sequence sweeps, warmups, repetitions, and raw logs;
 - model statistics, analytical KV-cache growth, MBU/MFU, and sparse S-MBU/S-MFU;
-- per-forward-pass expert activation tracing and sparsity-vs-batch plots;
+- per-step Hugging Face expert reference tracing with coverage, load ratio,
+  coefficient of variation, and normalized entropy;
 - `torch.profiler` bandwidth extraction, validation, and roofline plots.
 
 ## Installation
@@ -56,18 +57,32 @@ older environment before tracing.
 
 ## Quickstart
 
-Run all offline checks (no GPU or serving engine required):
+Run offline analytical checks (no GPU or model download required):
 
 ```bash
 ruff check .
 black --check .
 pytest
+moe-profiler offline-check
 python scripts/regenerate_figures.py
 ```
 
 The last command reads the committed `results/demo_sweep.csv` and creates the
 complete scoped figure manifest under `results/figures/`. The source CSV is an
 explicitly synthetic demonstration dataset, not a hardware benchmark.
+
+Create a Hugging Face reference trace. This is a separate execution from serving:
+
+```bash
+moe-profiler hf-trace --config configs/sweep_default.yaml
+```
+
+Run an uninstrumented serving sweep with the trace section disabled or set to
+`mode: none`, or run a serving sweep plus a separately labelled reference trace:
+
+```bash
+moe-profiler sweep --config configs/sweep_default.yaml
+```
 
 On a supported GPU, smoke-test either serving backend:
 
@@ -76,32 +91,35 @@ python scripts/smoke_test.py --config configs/model_qwen15moe.yaml
 python scripts/smoke_test.py --backend sglang --config configs/model_qwen15moe.yaml
 ```
 
-Run a configured serving + trace sweep with:
+Each sweep writes a summary CSV, raw per-trial JSONL, and raw per-request JSONL
+under `results/`. Validate a result before reporting it with:
 
 ```bash
-python -c "from moe_profiler.runner.sweep import run_sweep; print(run_sweep('configs/sweep_default.yaml'))"
+moe-profiler report results/<run-id>.csv
 ```
 
-That command loads the model once in trace mode, starts the configured serving
-backend, and writes a revision-stamped CSV under `results/`. It can require model
-access, substantial RAM/VRAM, and a backend-specific environment.
+`moe-profiler backend-trace` currently exits with a clear unsupported message.
+The vLLM and SGLang adapters do not simulate backend-native expert traces.
 
 ## Metrics
 
 | Metric | Definition used here |
 | --- | --- |
-| TTFT | Wall time from request start to the first streamed token. |
+| TTFT | Client wall time immediately before the request to the first non-empty generated-token content; empty role/delta events do not stop the timer. |
 | TPOT | `(end-to-end − TTFT) / (output tokens − 1)`; a one-token completion reports `0` with a warning because no inter-token interval exists. |
 | Throughput | Output tokens divided by full batch wall time, including prefill; it is deliberately end-to-end throughput. |
 | KV bytes/token | `2 × layers × KV heads × head dimension × dtype bytes`. |
-| Activated ratio | Union of experts inside one forward pass, averaged across representative passes; passes are not cumulatively unioned. |
-| MBU / S-MBU | Estimated bytes moved per TPOT divided by peak bandwidth, using total / activated model bytes respectively. |
-| MFU / S-MFU | Token throughput × total / active FLOPs per token divided by peak FLOPs. |
+| Activated ratio | Union of routed experts inside one reference forward pass, averaged across pinned workload manifests; shared experts are recorded separately. |
+| MBU / S-MBU | Analytical weight/KV byte estimate per decode TPOT divided by peak bandwidth. S-MBU requires a matched backend-native decode trace unless exploratory HF-reference use is explicitly enabled. |
+| MFU / S-MFU | Token throughput × total / active linear FLOPs per token divided by peak FLOPs. The attention term covers projections and excludes sequence-length-dependent score/value operations. |
 | Arithmetic intensity | FLOPs divided by bytes moved; points left/right of the device ridge are memory/compute bound. |
 
-All result rows include a model revision and backend version. The sweep seeds its
-controlled prompt generation. Cached activation matrices live under
-`results/activations/` and generated outputs remain ignored by Git.
+All result rows include immutable model/tokenizer revisions, backend version,
+dtype, tensor parallel size, concurrency, execution phase, trace mode, workload
+fingerprint, requested/actual token counts, measurement kind, instrumentation,
+and metric-availability reasons. Activation caches are compressed NPZ bundles
+whose identities include every field that changes trace meaning; stale or
+incompatible entries are not reused.
 
 ## Reproducible figures and findings
 
@@ -122,19 +140,21 @@ These are reproducibility examples, not measured performance claims. See
 
 ## Current validation status
 
-I have validated the analytical components that do not require a large GPU. For
-`Qwen/Qwen1.5-MoE-A2.7B-Chat`, the BF16 KV-cache formula gives approximately
-12 GiB at batch 32 and a 2,048-token context. Combined with roughly 26.7 GiB of
-BF16 parameter data, that is about 38.7 GiB before CUDA context, allocator,
-workspace, activation, and serving-engine overhead—already impractical for a
-40 GB-class accelerator.
+| Capability | Implemented | Validated offline | Needs GPU/backend run |
+| --- | --- | --- | --- |
+| Provenance and workload fingerprints | Yes | Yes | No |
+| Exact token-length manifests | Yes | Yes, with deterministic tokenizers | Real tokenizer/model access |
+| HF reference trace and cache validation | Yes | Tiny CPU MoE | Trained-model trace |
+| Per-step routing statistics | Yes | Tiny CPU MoE | Backend overhead measurement |
+| Explicit sparse/shared/dense byte model | Yes | Hand-calculated fixtures | Hardware-counter comparison |
+| Repeated serving benchmark and raw logs | Yes | Fake backend | vLLM/SGLang GPU run |
+| Backend-native expert trace | No | Unsupported path tested | Adapter implementation and validation |
+| Matched serving S-MBU | Compatibility gate only | Invalid combinations rejected | Backend-native decode trace |
 
-The remaining empirical measurement is the live expert-activation trace across
-batch sizes on the trained model. That run requires more accelerator memory than
-is currently available locally. The complete trace pipeline is implemented, and
-the S-MBU/S-MFU functions are ready to consume its activation matrices. Access to
-an 80 GB-class GPU would close the loop between the validated analytical model
-and measured sparsity-aware utilisation.
+The committed CSV, report figures, and roofline points are synthetic or
+illustrative. GPU validation can use a smaller batch, another MoE model,
+quantisation, CPU offload, tensor parallelism, or multiple devices; no particular
+accelerator memory size is asserted as the only valid route.
 
 ## Module map
 
@@ -160,6 +180,7 @@ and measured sparsity-aware utilisation.
 - Tiny/random MoE fixtures are suitable only for hook integration tests. Their
   random routers and small expert pools can saturate at batch 1, so their
   activation ratios must not be reported as model findings.
+- Hugging Face hooks produce a reference trace, not a trace of vLLM or SGLang.
 - Expert-module discovery uses architecture heuristics and should be checked when
   adding a new model family.
 - Profiler kernels do not always expose DRAM-byte counters. The code reports the

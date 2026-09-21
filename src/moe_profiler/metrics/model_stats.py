@@ -23,12 +23,28 @@ class ModelStats(BaseModel):
     top_k: int = Field(gt=0)
     n_shared_experts: int = Field(ge=0)
     expert_intermediate_size: int = Field(gt=0)
+    shared_expert_intermediate_size: int = Field(default=0, ge=0)
     dtype_bytes: float = Field(gt=0.0)
     total_params: int = Field(gt=0)
     active_params_per_token: int = Field(gt=0)
     attn_flops_per_token: int = Field(ge=0)
     expert_flops_per_token: int = Field(ge=0)
     router_flops_per_token: int = Field(ge=0)
+    sparse_layer_indices: tuple[int, ...] = ()
+    routed_expert_params_per_layer: tuple[int, ...] = ()
+    shared_expert_params_per_layer: tuple[int, ...] = ()
+    dense_mlp_params_per_layer: tuple[int, ...] = ()
+    router_params_per_layer: tuple[int, ...] = ()
+    attention_params_per_layer: tuple[int, ...] = ()
+    fixed_decode_params: int = Field(default=0, ge=0)
+    decode_weight_scope: str = (
+        "attention projections and auxiliaries, layer/final norms, routers, "
+        "dense MLPs, active experts, and untied LM head; embedding table excluded"
+    )
+    attention_flop_scope: str = (
+        "linear attention projections only; sequence-length-dependent attention "
+        "score/value operations are excluded"
+    )
 
     @model_validator(mode="after")
     def validate_routing(self) -> ModelStats:
@@ -37,6 +53,19 @@ class ModelStats(BaseModel):
             raise ValueError("top_k cannot exceed n_experts")
         if self.active_params_per_token > self.total_params:
             raise ValueError("active parameters cannot exceed total parameters")
+        per_layer_fields = (
+            self.routed_expert_params_per_layer,
+            self.shared_expert_params_per_layer,
+            self.dense_mlp_params_per_layer,
+            self.router_params_per_layer,
+            self.attention_params_per_layer,
+        )
+        if any(values and len(values) != self.n_layers for values in per_layer_fields):
+            raise ValueError("per-layer parameter arrays must have n_layers entries")
+        if any(
+            index < 0 or index >= self.n_layers for index in self.sparse_layer_indices
+        ):
+            raise ValueError("sparse_layer_indices contains an invalid layer")
         return self
 
 
@@ -65,7 +94,9 @@ class _LayerCounts:
         )
 
 
-def load_model_stats(model_id: str, dtype_bytes: float) -> ModelStats:
+def load_model_stats(
+    model_id: str, dtype_bytes: float, *, revision: str | None = None
+) -> ModelStats:
     """Load a Hugging Face config and derive analytical model statistics.
 
     Only configuration metadata is downloaded. Model weights are never loaded.
@@ -80,7 +111,7 @@ def load_model_stats(model_id: str, dtype_bytes: float) -> ModelStats:
             "dependencies from requirements.txt."
         ) from exc
 
-    config = AutoConfig.from_pretrained(model_id)
+    config = AutoConfig.from_pretrained(model_id, revision=revision)
     return model_stats_from_config(config, dtype_bytes=dtype_bytes)
 
 
@@ -153,6 +184,12 @@ def model_stats_from_config(config: _ConfigLike, dtype_bytes: float) -> ModelSta
     )
     layer_norm_params = 2 * hidden_size
 
+    routed_by_layer = [0] * n_layers
+    shared_by_layer = [0] * n_layers
+    dense_by_layer = [0] * n_layers
+    router_by_layer = [0] * n_layers
+    attention_by_layer = [attention_linear + attention_non_linear] * n_layers
+
     total_layer_params = 0
     active_attention_params = 0
     active_expert_params = 0
@@ -161,6 +198,9 @@ def model_stats_from_config(config: _ConfigLike, dtype_bytes: float) -> ModelSta
     for layer_index in range(n_layers):
         if layer_index in sparse_layers:
             router_params = hidden_size * n_experts + shared_gate_params
+            routed_by_layer[layer_index] = expert_params
+            shared_by_layer[layer_index] = shared_expert_params
+            router_by_layer[layer_index] = router_params
             layer_counts = _LayerCounts(
                 attention_linear=attention_linear,
                 attention_non_linear=attention_non_linear,
@@ -171,6 +211,7 @@ def model_stats_from_config(config: _ConfigLike, dtype_bytes: float) -> ModelSta
             active_expert_params += top_k * expert_params + shared_expert_params
             active_router_params += router_params
         else:
+            dense_by_layer[layer_index] = dense_mlp_params
             layer_counts = _LayerCounts(
                 attention_linear=attention_linear,
                 attention_non_linear=attention_non_linear,
@@ -192,6 +233,15 @@ def model_stats_from_config(config: _ConfigLike, dtype_bytes: float) -> ModelSta
     active_params = (
         active_attention_params + active_expert_params + active_router_params
     )
+    shared_intermediate_size = _maybe_int(config, "shared_expert_intermediate_size")
+    if shared_intermediate_size is None and n_shared_experts:
+        shared_intermediate_size = expert_intermediate_size * n_shared_experts
+    fixed_decode_params = (
+        sum(attention_by_layer)
+        + n_layers * layer_norm_params
+        + final_norm_params
+        + lm_head_params
+    )
 
     return ModelStats(
         n_layers=n_layers,
@@ -204,12 +254,20 @@ def model_stats_from_config(config: _ConfigLike, dtype_bytes: float) -> ModelSta
         top_k=top_k,
         n_shared_experts=n_shared_experts,
         expert_intermediate_size=expert_intermediate_size,
+        shared_expert_intermediate_size=shared_intermediate_size or 0,
         dtype_bytes=dtype_bytes,
         total_params=total_params,
         active_params_per_token=active_params,
         attn_flops_per_token=2 * active_attention_params,
         expert_flops_per_token=2 * active_expert_params,
         router_flops_per_token=2 * active_router_params,
+        sparse_layer_indices=tuple(sorted(sparse_layers)),
+        routed_expert_params_per_layer=tuple(routed_by_layer),
+        shared_expert_params_per_layer=tuple(shared_by_layer),
+        dense_mlp_params_per_layer=tuple(dense_by_layer),
+        router_params_per_layer=tuple(router_by_layer),
+        attention_params_per_layer=tuple(attention_by_layer),
+        fixed_decode_params=fixed_decode_params,
     )
 
 

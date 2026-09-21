@@ -80,6 +80,21 @@ def test_trace_provider_must_cover_every_batch_size() -> None:
     assert backend.started is False
 
 
+def test_backend_native_trace_is_rejected_when_adapter_is_unsupported() -> None:
+    config = AppConfig(
+        model=ModelConfig(model_id="offline/fake-moe"),
+        sweep=SweepConfig(batch_sizes=[1], sequence_lengths=[(8, 4)]),
+        trace=TraceConfig(mode="backend_native"),
+    )
+
+    with pytest.raises(RuntimeError, match="backend-native traces are unsupported"):
+        run_sweep(
+            config,
+            backend=_FakeBackend(),
+            revision_resolver=lambda model_id, revision: "d" * 40,
+        )
+
+
 class _FakeBackend(Backend):
     def __init__(self) -> None:
         self.started = False

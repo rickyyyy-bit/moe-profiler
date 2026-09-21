@@ -213,8 +213,6 @@ class SglangBackend(Backend):
                     data = line.removeprefix("data:").strip()
                     if not data or data == "[DONE]":
                         continue
-                    if first_chunk_at is None:
-                        first_chunk_at = time.perf_counter()
                     event = json.loads(data)
                     usage = event.get("usage") or {}
                     prompt_tokens = int(usage.get("prompt_tokens", prompt_tokens))
@@ -223,6 +221,8 @@ class SglangBackend(Backend):
                     if choices:
                         content = (choices[0].get("delta") or {}).get("content")
                         if content:
+                            if first_chunk_at is None:
+                                first_chunk_at = time.perf_counter()
                             output_parts.append(content)
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             raise BackendError(
@@ -232,7 +232,7 @@ class SglangBackend(Backend):
         finished_at = time.perf_counter()
         if first_chunk_at is None:
             raise BackendError(
-                f"Generation request {request.request_id!r} returned no streamed chunks"
+                f"Generation request {request.request_id!r} returned no token content"
             )
         if output_tokens <= 0:
             raise BackendError(

@@ -12,7 +12,10 @@ from typing import Any
 import numpy as np
 import torch
 from numpy.typing import NDArray
+from pydantic import BaseModel, ConfigDict, Field
 from torch import nn
+
+from moe_profiler.provenance import ExecutionPhase, TraceCacheIdentity
 
 _LAYER_INDEX = re.compile(r"(?:^|\.)(?:layers?|blocks?|h)\.(\d+)(?:\.|$)")
 _EXPERT_KEYS = (
@@ -40,6 +43,24 @@ class _RouterBinding:
     layer_index: int
     name: str
     module: nn.Module
+
+
+class ActivationRecord(BaseModel):
+    """Routing observation for one layer in one instrumented execution step."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    phase: ExecutionPhase
+    step_index: int = Field(ge=0)
+    layer_index: int = Field(ge=0)
+    routed_expert_assignment_counts: tuple[int, ...]
+    distinct_routed_experts: int = Field(ge=0)
+    distinct_routed_expert_fraction: float = Field(ge=0.0, le=1.0)
+    total_token_assignments: int = Field(ge=0)
+    shared_expert_assignment_counts: tuple[int, ...]
+    max_to_mean_load_ratio: float = Field(ge=0.0)
+    coefficient_of_variation: float = Field(ge=0.0)
+    normalized_routing_entropy: float = Field(ge=0.0, le=1.0)
 
 
 class ExpertActivationRecorder:
@@ -98,6 +119,7 @@ class ExpertActivationRecorder:
         self._counts_by_batch: dict[int, NDArray[np.int64]] = {}
         self._ratios_by_batch: dict[int, float] = {}
         self._current_batch_size = 1
+        self._records: list[ActivationRecord] = []
 
     def attach(self, model: object) -> None:
         """Locate MoE routers in ``model`` and attach activation hooks."""
@@ -177,6 +199,7 @@ class ExpertActivationRecorder:
             raise RuntimeError("attach a model before resetting the recorder")
         self._current_batch_size = batch_size
         self._counts = np.zeros((self.n_layers, self.n_experts), dtype=np.int64)
+        self._records.clear()
         if clear_history:
             self._counts_by_batch.clear()
             self._ratios_by_batch.clear()
@@ -195,6 +218,8 @@ class ExpertActivationRecorder:
         batch_size: int = 1,
         model_id: str | None = None,
         use_cache: bool = True,
+        cache_identity: TraceCacheIdentity | None = None,
+        phase: ExecutionPhase = "prefill",
     ) -> NDArray[np.int64]:
         """Trace dataset batches until the mean per-pass ratio stabilizes.
 
@@ -213,9 +238,13 @@ class ExpertActivationRecorder:
         if self._model is not model or not self._handles:
             self.attach(model)
 
-        resolved_model_id = model_id or _model_identifier(model)
-        if use_cache and resolved_model_id is not None:
-            cached = self.load_cache(resolved_model_id, batch_size)
+        del model_id  # Cache reuse requires the complete typed identity below.
+        if use_cache and cache_identity is not None:
+            if cache_identity.concurrency != batch_size:
+                raise ValueError("cache identity concurrency does not match batch_size")
+            if cache_identity.top_k != self._require_top_k():
+                raise ValueError("cache identity top_k does not match recorder")
+            cached = self.load_cache(cache_identity)
             if cached is not None:
                 return cached
 
@@ -238,6 +267,16 @@ class ExpertActivationRecorder:
                     self.batches_processed += 1
 
                     pass_counts = self.activation_matrix() - counts_before_pass
+                    self._records.extend(
+                        _activation_records(
+                            pass_counts,
+                            phase=phase,
+                            step_index=self.batches_processed - 1,
+                            top_k=self._require_top_k(),
+                            n_shared_experts=self.n_shared_experts,
+                            layer_indices=self._router_layer_indices,
+                        )
+                    )
                     pass_ratios.append(self._ratio_from_counts(pass_counts))
                     running_average = statistics.fmean(pass_ratios)
                     average_change = (
@@ -262,8 +301,8 @@ class ExpertActivationRecorder:
             raise ValueError("dataset did not yield any prompts")
         self._counts_by_batch[batch_size] = self.activation_matrix()
         self._ratios_by_batch[batch_size] = statistics.fmean(pass_ratios)
-        if resolved_model_id is not None:
-            self.save_cache(resolved_model_id, batch_size)
+        if cache_identity is not None:
+            self.save_cache(cache_identity)
         return self.activation_matrix()
 
     def activation_matrix(self) -> NDArray[np.int64]:
@@ -287,41 +326,59 @@ class ExpertActivationRecorder:
             ) from exc
         return self._ratio_from_counts(counts)
 
-    def cache_path(self, model_id: str, batch_size: int) -> Path:
-        """Return the deterministic activation-sheet path for a model/batch."""
-        if not model_id.strip():
-            raise ValueError("model_id must not be empty")
-        if batch_size <= 0:
-            raise ValueError("batch_size must be positive")
-        safe_model = re.sub(r"[^A-Za-z0-9_.-]+", "--", model_id.strip())
-        return self.cache_dir / f"{safe_model}_{batch_size}.npy"
+    def activation_records(self) -> tuple[ActivationRecord, ...]:
+        """Return immutable per-step records; the matrix remains a derived summary."""
+        return tuple(self._records)
 
-    def save_cache(self, model_id: str, batch_size: int) -> Path:
-        """Persist the activation sheet and its mean per-pass ratio."""
+    def cache_path(self, identity: TraceCacheIdentity) -> Path:
+        """Return the content-addressed NPZ path for a complete trace identity."""
+        safe_model = re.sub(r"[^A-Za-z0-9_.-]+", "--", identity.model_id.strip())
+        return self.cache_dir / f"{safe_model}_{identity.digest()}.npz"
+
+    def save_cache(self, identity: TraceCacheIdentity) -> Path:
+        """Persist counts, per-step observations, and exact identity together."""
+        batch_size = identity.concurrency
         try:
             counts = self._counts_by_batch[batch_size]
         except KeyError as exc:
             raise ValueError(
                 f"no activations recorded for batch size {batch_size}"
             ) from exc
-        path = self.cache_path(model_id, batch_size)
+        path = self.cache_path(identity)
         path.parent.mkdir(parents=True, exist_ok=True)
-        np.save(path, counts, allow_pickle=False)
         ratio = self._ratios_by_batch.get(batch_size)
         if ratio is None:
             ratio = self._ratio_from_counts(counts)
             self._ratios_by_batch[batch_size] = ratio
-        np.save(self._ratio_cache_path(path), np.asarray(ratio), allow_pickle=False)
+        records_json = "\n".join(record.model_dump_json() for record in self._records)
+        np.savez_compressed(
+            path,
+            counts=counts,
+            ratio=np.asarray(ratio, dtype=np.float64),
+            metadata=np.asarray(identity.model_dump_json()),
+            records=np.asarray(records_json),
+        )
         return path
 
-    def load_cache(self, model_id: str, batch_size: int) -> NDArray[np.int64] | None:
-        """Load a compatible cached sheet, or return ``None`` when absent."""
-        path = self.cache_path(model_id, batch_size)
-        ratio_path = self._ratio_cache_path(path)
-        if not path.exists() or not ratio_path.exists():
+    def load_cache(self, identity: TraceCacheIdentity) -> NDArray[np.int64] | None:
+        """Load an exactly compatible cached trace, or return ``None``."""
+        batch_size = identity.concurrency
+        path = self.cache_path(identity)
+        if not path.exists():
             return None
         expected_shape = (self._require_n_layers(), self._require_n_experts())
-        counts = np.load(path, allow_pickle=False)
+        with np.load(path, allow_pickle=False) as archive:
+            required = {"counts", "ratio", "metadata", "records"}
+            if not required <= set(archive.files):
+                raise ValueError("cached activation trace is missing required fields")
+            counts = archive["counts"]
+            cached_ratio = archive["ratio"]
+            cached_identity = TraceCacheIdentity.model_validate_json(
+                str(archive["metadata"].item())
+            )
+            records_text = str(archive["records"].item())
+        if cached_identity != identity:
+            raise ValueError("cached activation provenance is incompatible")
         if counts.shape != expected_shape:
             message = (
                 f"cached activation shape {counts.shape} does not match "
@@ -330,7 +387,6 @@ class ExpertActivationRecorder:
             raise ValueError(message)
         if not np.issubdtype(counts.dtype, np.integer):
             raise ValueError("cached activation sheet must contain integer counts")
-        cached_ratio = np.load(ratio_path, allow_pickle=False)
         if cached_ratio.shape != () or not np.issubdtype(
             cached_ratio.dtype, np.floating
         ):
@@ -342,6 +398,11 @@ class ExpertActivationRecorder:
         self._counts = counts.astype(np.int64, copy=True)
         self._counts_by_batch[batch_size] = self._counts.copy()
         self._ratios_by_batch[batch_size] = ratio
+        self._records = [
+            ActivationRecord.model_validate_json(line)
+            for line in records_text.splitlines()
+            if line
+        ]
         self.batches_processed = 0
         return self.activation_matrix()
 
@@ -353,10 +414,6 @@ class ExpertActivationRecorder:
         shared_active = len(rows) * self.n_shared_experts
         experts_per_layer = self._require_n_experts() + self.n_shared_experts
         return (routed_active + shared_active) / (len(rows) * experts_per_layer)
-
-    @staticmethod
-    def _ratio_cache_path(activation_path: Path) -> Path:
-        return activation_path.with_name(f"{activation_path.stem}.ratio.npy")
 
     def _make_hook(self, layer_index: int) -> Any:
         def record(
@@ -414,6 +471,55 @@ def _is_router_candidate(name: str, module: nn.Module) -> bool:
         for marker in ("moe", "expert", "sparse", "mlp", "feed_forward")
     )
     return leaf == "gate" and context_is_moe
+
+
+def _activation_records(
+    counts: NDArray[np.int64],
+    *,
+    phase: ExecutionPhase,
+    step_index: int,
+    top_k: int,
+    n_shared_experts: int,
+    layer_indices: Sequence[int],
+) -> list[ActivationRecord]:
+    """Convert one forward pass into per-layer routing statistics.
+
+    Entropy uses ``-sum(p * log(p)) / log(n_experts)``. Empty layers and
+    single-expert layers report zero because no routing diversity was observed.
+    """
+    records: list[ActivationRecord] = []
+    n_experts = counts.shape[1]
+    for layer_index in layer_indices:
+        row = counts[layer_index].astype(np.float64, copy=False)
+        total_assignments = int(row.sum())
+        distinct = int(np.count_nonzero(row))
+        mean = float(row.mean()) if row.size else 0.0
+        max_to_mean = float(row.max() / mean) if mean > 0 else 0.0
+        coefficient = float(row.std() / mean) if mean > 0 else 0.0
+        if total_assignments > 0 and n_experts > 1:
+            probabilities = row[row > 0] / total_assignments
+            entropy = float(
+                -np.sum(probabilities * np.log(probabilities)) / np.log(n_experts)
+            )
+        else:
+            entropy = 0.0
+        routed_tokens = total_assignments // top_k
+        records.append(
+            ActivationRecord(
+                phase=phase,
+                step_index=step_index,
+                layer_index=layer_index,
+                routed_expert_assignment_counts=tuple(int(value) for value in row),
+                distinct_routed_experts=distinct,
+                distinct_routed_expert_fraction=distinct / n_experts,
+                total_token_assignments=total_assignments,
+                shared_expert_assignment_counts=(routed_tokens,) * n_shared_experts,
+                max_to_mean_load_ratio=max_to_mean,
+                coefficient_of_variation=coefficient,
+                normalized_routing_entropy=entropy,
+            )
+        )
+    return records
 
 
 def _bind_router_layers(
@@ -609,12 +715,3 @@ def _move_to_model_device(
     if parameter is None:
         return inputs
     return {name: value.to(parameter.device) for name, value in inputs.items()}
-
-
-def _model_identifier(model: nn.Module) -> str | None:
-    config = getattr(model, "config", None)
-    for name in ("_name_or_path", "name_or_path"):
-        value = getattr(config, name, None)
-        if isinstance(value, str) and value.strip():
-            return value
-    return None

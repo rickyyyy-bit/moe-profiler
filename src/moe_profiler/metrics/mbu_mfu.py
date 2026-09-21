@@ -36,10 +36,12 @@ def s_mbu(
     s_kv_bytes: float,
     b_peak: float,
 ) -> float:
-    """Return sparsity-aware model bandwidth utilisation.
+    """Return an analytical sparsity-aware decode bandwidth utilisation.
 
-    Matrix entries are activation counts or booleans; any positive entry means
-    that routed expert's weights moved. Shared experts are always active.
+    A positive matrix entry activates one routed expert for that layer. The byte
+    model explicitly adds fixed decode weights, routers, dense MLPs, and the real
+    shared-expert size only on sparse layers. It estimates weight/KV traffic; it
+    does not assert that hardware fetches each parameter exactly once.
     """
     matrix = _validate_activation_matrix(stats, activation_matrix)
     _require_positive("tpot_s", tpot_s)
@@ -49,14 +51,41 @@ def s_mbu(
     if stats.n_experts == 1 and np.all(matrix > 0):
         return vanilla_mbu(stats, tpot_s, s_kv_bytes, b_peak)
 
-    attention_params = stats.attn_flops_per_token / 2
-    expert_params = _expert_params(stats)
-    routed_experts_active = int(np.count_nonzero(matrix > 0))
-    shared_experts_active = stats.n_layers * stats.n_shared_experts
-    activated_params = (
-        attention_params
-        + (routed_experts_active + shared_experts_active) * expert_params
-    )
+    if stats.routed_expert_params_per_layer:
+        sparse_layers = set(stats.sparse_layer_indices)
+        dense_rows = set(range(stats.n_layers)) - sparse_layers
+        if dense_rows and np.any(matrix[list(dense_rows)] > 0):
+            raise ValueError(
+                "activation_matrix contains routed experts for non-sparse layers"
+            )
+        routed_params = sum(
+            int(np.count_nonzero(matrix[layer_index] > 0))
+            * stats.routed_expert_params_per_layer[layer_index]
+            for layer_index in sparse_layers
+        )
+        activated_params = (
+            stats.fixed_decode_params
+            + sum(stats.dense_mlp_params_per_layer)
+            + sum(stats.router_params_per_layer)
+            + sum(stats.shared_expert_params_per_layer)
+            + routed_params
+        )
+    else:
+        # Compatibility for manually constructed ModelStats from the original API.
+        attention_params = stats.attn_flops_per_token / 2
+        expert_params = _expert_params(stats)
+        routed_experts_active = int(np.count_nonzero(matrix > 0))
+        if stats.shared_expert_intermediate_size:
+            shared_params = (
+                3
+                * stats.hidden_size
+                * stats.shared_expert_intermediate_size
+                * stats.n_layers
+            )
+        else:
+            shared_params = stats.n_shared_experts * expert_params * stats.n_layers
+        activated_params = attention_params + routed_experts_active * expert_params
+        activated_params += shared_params
     activated_bytes = activated_params * stats.dtype_bytes
     achieved_bandwidth = (activated_bytes + s_kv_bytes) / tpot_s
     return achieved_bandwidth / b_peak
@@ -78,8 +107,9 @@ def vanilla_mfu(stats: ModelStats, throughput: float, f_peak: float) -> float:
 def s_mfu(stats: ModelStats, throughput: float, f_peak: float) -> float:
     """Return sparsity-aware model FLOPs utilisation.
 
-    Model-stat derivation provides the three terms in the sparse FLOP equation from
-    model configuration: attention, router, and selected/shared expert FLOPs.
+    Model-stat derivation provides linear attention projections, router, and
+    selected/shared expert FLOPs. Sequence-length-dependent attention score and
+    value operations are deliberately outside this metric's documented scope.
     """
     _require_non_negative("throughput", throughput)
     _require_positive("f_peak", f_peak)

@@ -83,6 +83,34 @@ def test_sparse_mbu_counts_shared_experts_as_always_active() -> None:
     assert result == pytest.approx(expected)
 
 
+def test_sparse_mbu_sums_sparse_dense_shared_and_fixed_terms_explicitly() -> None:
+    stats = _stats(n_experts=4, top_k=2).model_copy(
+        update={
+            "n_layers": 4,
+            "sparse_layer_indices": (1, 3),
+            "routed_expert_params_per_layer": (0, 100, 0, 100),
+            "shared_expert_params_per_layer": (0, 300, 0, 300),
+            "dense_mlp_params_per_layer": (200, 0, 200, 0),
+            "router_params_per_layer": (0, 10, 0, 10),
+            "attention_params_per_layer": (100, 100, 100, 100),
+            "fixed_decode_params": 500,
+        }
+    )
+    matrix = np.zeros((4, 4), dtype=np.int64)
+    matrix[1, :2] = 1
+    matrix[3, 2] = 1
+
+    result = s_mbu(stats, matrix, 0.01, 100, 1_000_000)
+
+    # fixed 500 + dense 400 + routers 20 + shared 600 + routed 300.
+    expected = ((1820 * 2) + 100) / 0.01 / 1_000_000
+    assert result == pytest.approx(expected)
+
+    matrix[0, 0] = 1
+    with pytest.raises(ValueError, match="non-sparse"):
+        s_mbu(stats, matrix, 0.01, 100, 1_000_000)
+
+
 def test_mfu_matches_hand_calculated_flop_terms() -> None:
     stats = _stats(n_experts=8, top_k=2)
     throughput = 25.0

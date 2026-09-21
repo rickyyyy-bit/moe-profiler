@@ -7,6 +7,7 @@ from torch import nn
 
 from moe_profiler.backends.base import ExpertTraceRecorder
 from moe_profiler.profiling.expert_recorder import ExpertActivationRecorder
+from moe_profiler.provenance import TraceCacheIdentity
 
 
 class FakeRouter(nn.Module):
@@ -130,6 +131,7 @@ def test_ratio_grows_with_batch_and_cache_is_reused(tmp_path) -> None:
         use_cache=False,
     )
     ratio_one = recorder.activated_ratio(1)
+    identity = _cache_identity(32)
     batch_32 = recorder.run(
         model,
         tokenizer,
@@ -138,16 +140,16 @@ def test_ratio_grows_with_batch_and_cache_is_reused(tmp_path) -> None:
         batch_size=32,
         model_id="tests/fake-moe",
         use_cache=False,
+        cache_identity=identity,
     )
     ratio_32 = recorder.activated_ratio(32)
 
     assert np.count_nonzero(batch_one) == 4
     assert np.count_nonzero(batch_32) == 8
     assert ratio_one <= ratio_32
-    cache_path = recorder.cache_path("tests/fake-moe", 32)
-    assert cache_path == tmp_path / "tests--fake-moe_32.npy"
+    cache_path = recorder.cache_path(identity)
+    assert cache_path == tmp_path / f"tests--fake-moe_{identity.digest()}.npz"
     assert cache_path.exists()
-    assert (tmp_path / "tests--fake-moe_32.ratio.npy").exists()
 
     cached_recorder = ExpertActivationRecorder(cache_dir=tmp_path)
     cached = cached_recorder.run(
@@ -157,10 +159,37 @@ def test_ratio_grows_with_batch_and_cache_is_reused(tmp_path) -> None:
         max_batches=1,
         batch_size=32,
         model_id="tests/fake-moe",
+        cache_identity=identity,
     )
     np.testing.assert_array_equal(cached, batch_32)
     assert cached_recorder.activated_ratio(32) == pytest.approx(ratio_32)
     assert cached_recorder.batches_processed == 0
+
+
+def test_per_step_records_capture_imbalance_and_shared_experts(tmp_path) -> None:
+    recorder = ExpertActivationRecorder(cache_dir=tmp_path)
+    recorder.run(
+        FakeMoeModel(),
+        FakeTokenizer(),
+        ["0", "0", "1", "2"],
+        max_batches=2,
+        batch_size=2,
+        use_cache=False,
+        phase="decode",
+    )
+
+    records = recorder.activation_records()
+    assert len(records) == 4
+    assert {record.step_index for record in records} == {0, 1}
+    assert {record.layer_index for record in records} == {0, 1}
+    first = records[0]
+    assert first.phase == "decode"
+    assert first.total_token_assignments == 4
+    assert first.shared_expert_assignment_counts == (2,)
+    assert first.distinct_routed_experts == 2
+    assert first.max_to_mean_load_ratio == pytest.approx(2.0)
+    assert first.coefficient_of_variation == pytest.approx(1.0)
+    assert first.normalized_routing_entropy == pytest.approx(0.5)
 
 
 def test_ratio_averages_each_pass_instead_of_using_cumulative_union(tmp_path) -> None:
@@ -200,3 +229,21 @@ def test_run_stops_after_running_average_stabilizes(tmp_path) -> None:
     )
 
     assert recorder.batches_processed == 3
+
+
+def _cache_identity(concurrency: int) -> TraceCacheIdentity:
+    return TraceCacheIdentity(
+        model_id="tests/fake-moe",
+        model_revision="a" * 40,
+        tokenizer_id="tests/fake-tokenizer",
+        tokenizer_revision="b" * 40,
+        dtype="float32",
+        workload_fingerprint="c" * 64,
+        trace_mode="hf_reference",
+        phase="prefill",
+        prompt_token_lengths=(1,) * concurrency,
+        output_token_lengths=(4,) * concurrency,
+        concurrency=concurrency,
+        top_k=2,
+        tracer_version="2",
+    )

@@ -19,9 +19,17 @@ sweep:
   workload: synthetic
   results_dir: results
   seed: 42
+  warmup_trials: 1
+  measured_repetitions: 3
+  # Set these for analytical utilisation metrics on a known device.
+  peak_bw_gbps: null
+  peak_flops: null
 
 trace:
   enabled: true
+  mode: hf_reference
+  allow_mismatched_metrics: false
+  tracer_version: "2"
   max_batches: 8
   cache_dir: results/activations
   device_map: auto
